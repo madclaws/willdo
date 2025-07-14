@@ -1,5 +1,8 @@
 use std::sync::Arc;
-use veilid_core::{VeilidConfig, VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate};
+use veilid_core::{
+    DHTSchemaDFLT, RoutingContext, ValueSubkey, VeilidConfig, VeilidConfigProtectedStore,
+    VeilidConfigTableStore, VeilidUpdate,
+};
 
 #[tokio::main]
 async fn main() {
@@ -46,6 +49,40 @@ async fn main() {
     );
 
     veilid.attach().await.unwrap();
+
+    let routing_ctx = veilid.routing_context().unwrap();
+
+    let dht = routing_ctx
+        .create_dht_record(
+            veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(5).unwrap()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    println!("{:?}", dht.schema());
+
+    // dht.schema();
+
+    let res = routing_ctx
+        .set_dht_value(
+            dht.key().clone(),
+            1,
+            String::from("Hello").into_bytes(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    println!("{:?}", res);
+
+    let res = routing_ctx
+        .get_dht_value(dht.key().clone(), 1, false)
+        .await
+        .unwrap();
+
+    println!("{:?}", res);
     tokio::signal::ctrl_c().await.unwrap();
     veilid.shutdown().await;
 }
