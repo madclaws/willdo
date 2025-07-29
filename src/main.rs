@@ -2,8 +2,8 @@ use std::io::Write;
 use std::io::{self};
 use std::sync::Arc;
 use veilid_core::{
-    DHTRecordDescriptor, DHTSchemaDFLT, VeilidAPIError, VeilidAPIResult, VeilidConfig,
-    VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
+    DHTRecordDescriptor, DHTSchemaDFLT, VeilidConfig, VeilidConfigProtectedStore,
+    VeilidConfigTableStore, VeilidUpdate,
 };
 
 #[tokio::main]
@@ -50,6 +50,7 @@ async fn main() {
         (veilid.config().unwrap().get().network.routing_table.node_id)
     );
 
+    // connecting to the network, are we?
     veilid.attach().await.unwrap();
 
     let routing_ctx = veilid.routing_context().unwrap();
@@ -57,6 +58,7 @@ async fn main() {
     let mut dht: Option<DHTRecordDescriptor> = None;
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+
     loop {
         print!("willdo> ");
         stdout.flush().unwrap();
@@ -64,43 +66,52 @@ async fn main() {
         stdin.read_line(&mut input).unwrap();
         let input = input.trim();
 
-        if input == "exit" {
-            println!("Exiting CLI...");
-            break;
-        } else if input.starts_with("create") {
-            let res = routing_ctx
-                .create_dht_record(
-                    veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(5).unwrap()),
-                    None,
-                    None,
-                )
-                .await
-                .unwrap();
-            dht = Some(res);
+        match input {
+            "exit" => {
+                println!("Exiting CLI...");
+                break;
+            }
+            _ if input.starts_with("create") => {
+                let res = routing_ctx
+                    .create_dht_record(
+                        veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(5).unwrap()),
+                        None,
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                dht = Some(res);
 
-            println!("{:?}", dht.as_ref().unwrap().schema());
-        } else if input.starts_with("set") {
-            routing_ctx
-                .set_dht_value(
-                    dht.as_ref().unwrap().key().clone(),
-                    2,
-                    String::from("World").into_bytes(),
-                    None,
-                )
-                .await
-                .unwrap();
-            println!("Veilid stuff")
-        } else if input.starts_with("get") {
-            let res = routing_ctx
-                .get_dht_value(dht.as_ref().unwrap().key().clone(), 2, false)
-                .await
-                .unwrap();
-            println!("{:?}", res);
-        } else {
-            println!("You typed: {}", input);
+                println!("{:?}", dht.as_ref().unwrap().schema());
+            }
+            _ if input.starts_with("set") => {
+                routing_ctx
+                    .set_dht_value(
+                        *dht.as_ref().unwrap().key(),
+                        2,
+                        String::from("World").into_bytes(),
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                println!("Set value")
+            }
+            _ if input.starts_with("get") => {
+                let res = routing_ctx
+                    .get_dht_value(*dht.as_ref().unwrap().key(), 2, false)
+                    .await
+                    .unwrap();
+                println!("{:?}", res);
+            }
+            _ => {
+                println!("Invalid command: {}", input);
+            }
         }
     }
 
     // tokio::signal::ctrl_c().await.unwrap();
     veilid.shutdown().await;
 }
+
+// TODO:
+// Refactor the commands, so that we can insert more stuff
