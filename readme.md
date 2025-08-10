@@ -1,4 +1,4 @@
 # willdo
 
-> A shared Todo over veilid network
+> A shared Keep over veilid network
 

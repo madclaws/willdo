@@ -1,11 +1,13 @@
 use std::io::Write;
 use std::io::{self};
+use std::ops::Index;
+use std::str::FromStr;
 use std::sync::Arc;
 use veilid_core::{
-    DHTRecordDescriptor, DHTSchemaDFLT, VeilidConfig, VeilidConfigProtectedStore,
-    VeilidConfigTableStore, VeilidUpdate,
+    CryptoKind, DHTRecordDescriptor, DHTSchemaDFLT, Encodable, HashDigest, RecordKey,
+    TypedRecordKey, VeilidConfig, VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
 };
-
+const MAX_ENTRIES: u16 = 50;
 #[tokio::main]
 async fn main() {
     println!("Willdo: A shared todo over veilid network!");
@@ -71,37 +73,82 @@ async fn main() {
                 println!("Exiting CLI...");
                 break;
             }
-            _ if input.starts_with("create") => {
-                let res = routing_ctx
-                    .create_dht_record(
-                        veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(5).unwrap()),
-                        None,
-                        None,
-                    )
-                    .await
-                    .unwrap();
-                dht = Some(res);
+            _ if input.starts_with("create") => match get_args(input) {
+                Ok(arg) => {
+                    // Looks like the owner is some random pair, so creator is rogue
+                    let res = routing_ctx
+                        .create_dht_record(
+                            veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(MAX_ENTRIES).unwrap()),
+                            None,
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                    dht = Some(res);
 
-                println!("{:?}", dht.as_ref().unwrap().schema());
-            }
+                    println!("{:?}", dht.as_ref().unwrap());
+                    let res = routing_ctx
+                        .set_dht_value(*dht.as_ref().unwrap().key(), 0, arg.into_bytes(), None)
+                        .await
+                        .unwrap();
+                    debug_assert_eq!(res, None);
+
+                    let res = routing_ctx
+                        .set_dht_value(
+                            *dht.as_ref().unwrap().key(),
+                            1,
+                            String::from("2").into_bytes(),
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                    debug_assert_eq!(res, None);
+                    debug_assert_eq!(
+                        routing_ctx
+                            .close_dht_record(*dht.as_ref().unwrap().key())
+                            .await
+                            .unwrap(),
+                        ()
+                    );
+                }
+                Err(err) => {
+                    println!("{:?}", err)
+                }
+            },
             _ if input.starts_with("set") => {
+                // let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
+
+                let cmds: Vec<&str> = input.split(' ').collect();
+                let h = HashDigest::try_decode_bytes(cmds.index(1).as_bytes()).unwrap();
+                let key =
+                    TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h));
+
+                let _dht = routing_ctx.open_dht_record(key, None).await.unwrap();
                 routing_ctx
-                    .set_dht_value(
-                        *dht.as_ref().unwrap().key(),
-                        2,
-                        String::from("World").into_bytes(),
-                        None,
-                    )
+                    .set_dht_value(key, 2, String::from("World").into_bytes(), None)
                     .await
                     .unwrap();
                 println!("Set value")
             }
             _ if input.starts_with("get") => {
-                let res = routing_ctx
-                    .get_dht_value(*dht.as_ref().unwrap().key(), 2, false)
-                    .await
-                    .unwrap();
-                println!("{:?}", res);
+                let cmds: Vec<&str> = input.split(' ').collect();
+                let h = HashDigest::try_decode_bytes(cmds.index(1).as_bytes()).unwrap();
+                let key =
+                    TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h));
+
+                let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
+                println!("{:?}", dht);
+                // loop thru the index until we get the value not there or smthing, during that time
+                // push it to a vec string so later we can show it as one.
+                let mut content: Vec<String> = vec![];
+                for i in 0..MAX_ENTRIES {
+                    if let Ok(Some(val)) = routing_ctx.get_dht_value(key, i as u32, false).await {
+                        content.push(String::from_utf8(val.data().to_owned()).unwrap());
+                    } else {
+                        break;
+                    }
+                }
+                println!("{}", content.join("\n"));
             }
             _ => {
                 println!("Invalid command: {}", input);
@@ -113,5 +160,13 @@ async fn main() {
     veilid.shutdown().await;
 }
 
+fn get_args(input: &str) -> Result<String, String> {
+    let cmds: Vec<&str> = input.split(' ').collect();
+    if cmds.len() != 2 {
+        Err("Must have one and only one argument".to_owned())
+    } else {
+        Ok(cmds.index(1).to_string())
+    }
+}
 // TODO:
 // Refactor the commands, so that we can insert more stuff
