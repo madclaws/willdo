@@ -4,8 +4,9 @@ use std::ops::Index;
 use std::str::FromStr;
 use std::sync::Arc;
 use veilid_core::{
-    CryptoKind, DHTRecordDescriptor, DHTSchemaDFLT, Encodable, HashDigest, RecordKey,
-    TypedRecordKey, VeilidConfig, VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
+    AllowOffline, Crypto, CryptoKind, DHTRecordDescriptor, DHTSchemaDFLT, Encodable, HashDigest,
+    KeyPair, RecordKey, SetDHTValueOptions, TypedRecordKey, VeilidConfig,
+    VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
 };
 const MAX_ENTRIES: u16 = 50;
 #[tokio::main]
@@ -57,7 +58,10 @@ async fn main() {
 
     let routing_ctx = veilid.routing_context().unwrap();
 
+    #[allow(unused_assignments)]
     let mut dht: Option<DHTRecordDescriptor> = None;
+    #[allow(unused_assignments)]
+    let mut keypair: Option<KeyPair> = None;
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
@@ -73,22 +77,48 @@ async fn main() {
                 println!("Exiting CLI...");
                 break;
             }
+            "signup" => {
+                let keypair_gen = Crypto::generate_keypair(CryptoKind::from_str("VLD0").unwrap())
+                    .unwrap()
+                    .value;
+                keypair = Some(keypair_gen);
+                println!("login key: {}", keypair.unwrap().encode());
+            }
+
+            _ if input.starts_with("login") => match get_args(input) {
+                Ok(arg) => {
+                    keypair = Some(KeyPair::try_decode(&arg).unwrap());
+                    println!("Logged In");
+                }
+                Err(err) => {
+                    println!("{:?}", err);
+                    break;
+                }
+            },
             _ if input.starts_with("create") => match get_args(input) {
                 Ok(arg) => {
                     // Looks like the owner is some random pair, so creator is rogue
                     let res = routing_ctx
                         .create_dht_record(
                             veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(MAX_ENTRIES).unwrap()),
-                            None,
+                            keypair,
                             None,
                         )
                         .await
                         .unwrap();
                     dht = Some(res);
-
+                    let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
+                        writer: keypair,
+                        allow_offline: Some(AllowOffline(true)),
+                    });
                     println!("{:?}", dht.as_ref().unwrap());
                     let res = routing_ctx
-                        .set_dht_value(*dht.as_ref().unwrap().key(), 0, arg.into_bytes(), None)
+                        .set_dht_value(
+                            *dht.as_ref().unwrap().key(),
+                            0,
+                            arg.into_bytes(),
+                            dht_options.clone(),
+                        )
                         .await
                         .unwrap();
                     debug_assert_eq!(res, None);
@@ -98,7 +128,7 @@ async fn main() {
                             *dht.as_ref().unwrap().key(),
                             1,
                             String::from("2").into_bytes(),
-                            None,
+                            dht_options.clone(),
                         )
                         .await
                         .unwrap();
@@ -118,6 +148,10 @@ async fn main() {
             _ if input.starts_with("set") => {
                 // let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
 
+                let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
+                    writer: keypair,
+                    allow_offline: Some(AllowOffline(true)),
+                });
                 let cmds: Vec<&str> = input.split(' ').collect();
                 let h = HashDigest::try_decode_bytes(cmds.index(1).as_bytes()).unwrap();
                 let key =
@@ -125,7 +159,7 @@ async fn main() {
 
                 let _dht = routing_ctx.open_dht_record(key, None).await.unwrap();
                 routing_ctx
-                    .set_dht_value(key, 2, String::from("World").into_bytes(), None)
+                    .set_dht_value(key, 2, String::from("World").into_bytes(), dht_options)
                     .await
                     .unwrap();
                 println!("Set value")
