@@ -91,13 +91,12 @@ async fn main() {
                     println!("Logged In");
                 }
                 Err(err) => {
-                    println!("{:?}", err);
+                    println!("Login failed {:?}", err);
                     break;
                 }
             },
             _ if input.starts_with("create") => match get_args(input) {
                 Ok(arg) => {
-                    // Looks like the owner is some random pair, so creator is rogue
                     let res = routing_ctx
                         .create_dht_record(
                             veilid_core::DHTSchema::DFLT(DHTSchemaDFLT::new(MAX_ENTRIES).unwrap()),
@@ -145,52 +144,58 @@ async fn main() {
                     println!("{:?}", err)
                 }
             },
-            _ if input.starts_with("set") => {
-                // let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
-
-                let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
-                    writer: keypair,
-                    allow_offline: Some(AllowOffline(true)),
-                });
-                let cmds: Vec<&str> = input.split(' ').collect();
-                let h = HashDigest::try_decode_bytes(cmds.index(1).as_bytes()).unwrap();
-                let key =
-                    TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h));
-
-                let _dht = routing_ctx.open_dht_record(key, None).await.unwrap();
-                routing_ctx
-                    .set_dht_value(key, 2, String::from("World").into_bytes(), dht_options)
-                    .await
-                    .unwrap();
-                println!("Set value")
-            }
-            _ if input.starts_with("get") => {
-                let cmds: Vec<&str> = input.split(' ').collect();
-                let h = HashDigest::try_decode_bytes(cmds.index(1).as_bytes()).unwrap();
-                let key =
-                    TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h));
-
-                let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
-                println!("{:?}", dht);
-                // loop thru the index until we get the value not there or smthing, during that time
-                // push it to a vec string so later we can show it as one.
-                let mut content: Vec<String> = vec![];
-                for i in 0..MAX_ENTRIES {
-                    if let Ok(Some(val)) = routing_ctx.get_dht_value(key, i as u32, false).await {
-                        content.push(String::from_utf8(val.data().to_owned()).unwrap());
-                    } else {
-                        break;
-                    }
+            _ if input.starts_with("set") => match get_args(input) {
+                Ok(arg) => {
+                    let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
+                        writer: keypair,
+                        allow_offline: Some(AllowOffline(true)),
+                    });
+                    let key = get_record_key(&arg);
+                    let _dht = routing_ctx
+                        .open_dht_record(key, dht_options.as_ref().unwrap().writer)
+                        .await
+                        .unwrap();
+                    routing_ctx
+                        .set_dht_value(key, 2, String::from("World").into_bytes(), dht_options)
+                        .await
+                        .unwrap();
+                    println!("Set value")
                 }
-                println!("{}", content.join("\n"));
-            }
+                Err(err) => {
+                    println!("{:?}", err);
+                }
+            },
+
+            _ if input.starts_with("get") => match get_args(input) {
+                Ok(arg) => {
+                    let key = get_record_key(&arg);
+
+                    let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
+                    println!("{:?}", dht);
+                    // loop thru the index until we get the value not there or smthing, during that time
+                    // push it to a vec string so later we can show it as one.
+                    let mut content: Vec<String> = vec![];
+                    for i in 0..MAX_ENTRIES {
+                        if let Ok(Some(val)) = routing_ctx.get_dht_value(key, i as u32, false).await
+                        {
+                            content.push(String::from_utf8(val.data().to_owned()).unwrap());
+                        } else {
+                            break;
+                        }
+                    }
+                    println!("{}", content.join("\n"));
+                }
+                Err(err) => {
+                    println!("{:?}", err)
+                }
+            },
+
             _ => {
                 println!("Invalid command: {}", input);
             }
         }
     }
 
-    // tokio::signal::ctrl_c().await.unwrap();
     veilid.shutdown().await;
 }
 
@@ -202,5 +207,8 @@ fn get_args(input: &str) -> Result<String, String> {
         Ok(cmds.index(1).to_string())
     }
 }
-// TODO:
-// Refactor the commands, so that we can insert more stuff
+
+fn get_record_key(key_str: &str) -> TypedRecordKey {
+    let h = HashDigest::try_decode_bytes(key_str.as_bytes()).unwrap();
+    TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h))
+}
