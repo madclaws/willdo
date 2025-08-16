@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::io::Write;
 use std::io::{self};
 use std::ops::Index;
@@ -9,6 +11,13 @@ use veilid_core::{
     VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
 };
 const MAX_ENTRIES: u16 = 50;
+
+#[derive(Serialize, Deserialize)]
+struct Todo {
+    title: String,
+    content: Vec<String>,
+}
+
 #[tokio::main]
 async fn main() {
     println!("Willdo: A shared todo over veilid network!");
@@ -74,7 +83,7 @@ async fn main() {
 
         match input {
             "exit" => {
-                println!("Exiting CLI...");
+                println!("Exiting REPL...");
                 break;
             }
             "signup" => {
@@ -111,27 +120,22 @@ async fn main() {
                         allow_offline: Some(AllowOffline(true)),
                     });
                     println!("{:?}", dht.as_ref().unwrap());
+                    let todo = Todo {
+                        title: arg,
+                        content: vec![],
+                    };
+
                     let res = routing_ctx
                         .set_dht_value(
                             *dht.as_ref().unwrap().key(),
                             0,
-                            arg.into_bytes(),
+                            serde_json::to_vec_pretty(&todo).unwrap(),
                             dht_options.clone(),
                         )
                         .await
                         .unwrap();
                     debug_assert_eq!(res, None);
 
-                    let res = routing_ctx
-                        .set_dht_value(
-                            *dht.as_ref().unwrap().key(),
-                            1,
-                            String::from("2").into_bytes(),
-                            dht_options.clone(),
-                        )
-                        .await
-                        .unwrap();
-                    debug_assert_eq!(res, None);
                     debug_assert_eq!(
                         routing_ctx
                             .close_dht_record(*dht.as_ref().unwrap().key())
@@ -144,27 +148,43 @@ async fn main() {
                     println!("{:?}", err)
                 }
             },
-            _ if input.starts_with("set") => match get_args(input) {
-                Ok(arg) => {
-                    let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
-                        writer: keypair,
-                        allow_offline: Some(AllowOffline(true)),
-                    });
-                    let key = get_record_key(&arg);
-                    let _dht = routing_ctx
-                        .open_dht_record(key, dht_options.as_ref().unwrap().writer)
-                        .await
-                        .unwrap();
-                    routing_ctx
-                        .set_dht_value(key, 2, String::from("World").into_bytes(), dht_options)
-                        .await
-                        .unwrap();
-                    println!("Set value")
+            _ if input.starts_with("set") => {
+                let args = get_args_multi(input);
+                let key_arg = args.index(1);
+                let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
+                    writer: keypair,
+                    allow_offline: Some(AllowOffline(true)),
+                });
+                let key = get_record_key(&key_arg);
+                let _dht = routing_ctx
+                    .open_dht_record(key, dht_options.as_ref().unwrap().writer)
+                    .await
+                    .unwrap();
+                //TODO: get_dht can be resued
+                match routing_ctx.get_dht_value(key, 0, false).await {
+                    Ok(Some(val)) => {
+                        let mut todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                        todo.content.push(args.index(2).to_owned());
+
+                        routing_ctx
+                            .set_dht_value(
+                                key,
+                                0,
+                                serde_json::to_vec_pretty(&todo).unwrap(),
+                                dht_options,
+                            )
+                            .await
+                            .unwrap();
+                        println!("Set value")
+                    }
+                    Ok(None) => {
+                        println!("Value not found")
+                    }
+                    Err(err) => {
+                        println!("{:?}", err);
+                    }
                 }
-                Err(err) => {
-                    println!("{:?}", err);
-                }
-            },
+            }
 
             _ if input.starts_with("get") => match get_args(input) {
                 Ok(arg) => {
@@ -172,24 +192,69 @@ async fn main() {
 
                     let dht = routing_ctx.open_dht_record(key, None).await.unwrap();
                     println!("{:?}", dht);
-                    // loop thru the index until we get the value not there or smthing, during that time
-                    // push it to a vec string so later we can show it as one.
-                    let mut content: Vec<String> = vec![];
-                    for i in 0..MAX_ENTRIES {
-                        if let Ok(Some(val)) = routing_ctx.get_dht_value(key, i as u32, false).await
-                        {
-                            content.push(String::from_utf8(val.data().to_owned()).unwrap());
-                        } else {
-                            break;
+                    match routing_ctx.get_dht_value(key, 0, false).await {
+                        Ok(Some(val)) => {
+                            let todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                            let mut todo_content: Vec<String> =
+                                vec![String::from("\n"), todo.title];
+                            todo_content.push(String::from("\n"));
+                            for (i, s) in todo.content.iter().enumerate() {
+                                let mut list = (i + 1).to_string();
+                                list.push_str(". ");
+                                list.push_str(s);
+                                todo_content.push(list);
+                            }
+                            println!("{}", todo_content.join("\n").trim_end());
+                        }
+                        Ok(None) => {
+                            println!("Value not found")
+                        }
+                        Err(err) => {
+                            println!("{:?}", err);
                         }
                     }
-                    println!("{}", content.join("\n"));
                 }
                 Err(err) => {
                     println!("{:?}", err)
                 }
             },
-
+            _ if input.starts_with("del") => {
+                let args = get_args_multi(input);
+                let key_arg = args.index(1);
+                let dht_options: Option<SetDHTValueOptions> = Some(SetDHTValueOptions {
+                    writer: keypair,
+                    allow_offline: Some(AllowOffline(true)),
+                });
+                let key = get_record_key(&key_arg);
+                let _dht = routing_ctx
+                    .open_dht_record(key, dht_options.as_ref().unwrap().writer)
+                    .await
+                    .unwrap();
+                //TODO: get_dht can be resued
+                match routing_ctx.get_dht_value(key, 0, false).await {
+                    Ok(Some(val)) => {
+                        let mut todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                        todo.content
+                            .remove(args.index(2).parse::<usize>().unwrap() - 1);
+                        routing_ctx
+                            .set_dht_value(
+                                key,
+                                0,
+                                serde_json::to_vec_pretty(&todo).unwrap(),
+                                dht_options,
+                            )
+                            .await
+                            .unwrap();
+                        println!("Delete value")
+                    }
+                    Ok(None) => {
+                        println!("Value not found")
+                    }
+                    Err(err) => {
+                        println!("{:?}", err);
+                    }
+                }
+            }
             _ => {
                 println!("Invalid command: {}", input);
             }
@@ -206,6 +271,11 @@ fn get_args(input: &str) -> Result<String, String> {
     } else {
         Ok(cmds.index(1).to_string())
     }
+}
+
+fn get_args_multi(input: &str) -> Vec<String> {
+    let cmds: Vec<&str> = input.split(' ').collect();
+    cmds.iter().map(|cmd| cmd.to_string()).collect()
 }
 
 fn get_record_key(key_str: &str) -> TypedRecordKey {
