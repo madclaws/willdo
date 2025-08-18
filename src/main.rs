@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::io::Write;
 use std::io::{self};
 use std::ops::Index;
@@ -20,7 +19,7 @@ struct Todo {
 
 #[tokio::main]
 async fn main() {
-    println!("Willdo: A shared todo over veilid network!");
+    println!("Willdo: A decentralized shared todo-list over veilid network!");
 
     let update_callback = Arc::new(move |_veilid_updates: VeilidUpdate| {});
 
@@ -62,7 +61,6 @@ async fn main() {
         (veilid.config().unwrap().get().network.routing_table.node_id)
     );
 
-    // connecting to the network, are we?
     veilid.attach().await.unwrap();
 
     let routing_ctx = veilid.routing_context().unwrap();
@@ -90,6 +88,7 @@ async fn main() {
                 let keypair_gen = Crypto::generate_keypair(CryptoKind::from_str("VLD0").unwrap())
                     .unwrap()
                     .value;
+
                 keypair = Some(keypair_gen);
                 println!("login key: {}", keypair.unwrap().encode());
             }
@@ -97,6 +96,7 @@ async fn main() {
             _ if input.starts_with("login") => match get_args(input) {
                 Ok(arg) => {
                     keypair = Some(KeyPair::try_decode(&arg).unwrap());
+
                     println!("Logged In");
                 }
                 Err(err) => {
@@ -136,13 +136,10 @@ async fn main() {
                         .unwrap();
                     debug_assert_eq!(res, None);
 
-                    debug_assert_eq!(
-                        routing_ctx
-                            .close_dht_record(*dht.as_ref().unwrap().key())
-                            .await
-                            .unwrap(),
-                        ()
-                    );
+                    routing_ctx
+                        .close_dht_record(*dht.as_ref().unwrap().key())
+                        .await
+                        .unwrap()
                 }
                 Err(err) => {
                     println!("{:?}", err)
@@ -155,7 +152,7 @@ async fn main() {
                     writer: keypair,
                     allow_offline: Some(AllowOffline(true)),
                 });
-                let key = get_record_key(&key_arg);
+                let key = get_record_key(key_arg);
                 let _dht = routing_ctx
                     .open_dht_record(key, dht_options.as_ref().unwrap().writer)
                     .await
@@ -163,7 +160,7 @@ async fn main() {
                 //TODO: get_dht can be resued
                 match routing_ctx.get_dht_value(key, 0, false).await {
                     Ok(Some(val)) => {
-                        let mut todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                        let mut todo: Todo = serde_json::from_slice(val.data()).unwrap();
                         todo.content.push(args.index(2).to_owned());
 
                         routing_ctx
@@ -194,7 +191,7 @@ async fn main() {
                     println!("{:?}", dht);
                     match routing_ctx.get_dht_value(key, 0, false).await {
                         Ok(Some(val)) => {
-                            let todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                            let todo: Todo = serde_json::from_slice(val.data()).unwrap();
                             let mut todo_content: Vec<String> =
                                 vec![String::from("\n"), todo.title];
                             todo_content.push(String::from("\n"));
@@ -225,7 +222,7 @@ async fn main() {
                     writer: keypair,
                     allow_offline: Some(AllowOffline(true)),
                 });
-                let key = get_record_key(&key_arg);
+                let key = get_record_key(key_arg);
                 let _dht = routing_ctx
                     .open_dht_record(key, dht_options.as_ref().unwrap().writer)
                     .await
@@ -233,7 +230,7 @@ async fn main() {
                 //TODO: get_dht can be resued
                 match routing_ctx.get_dht_value(key, 0, false).await {
                     Ok(Some(val)) => {
-                        let mut todo: Todo = serde_json::from_slice(&val.data()).unwrap();
+                        let mut todo: Todo = serde_json::from_slice(val.data()).unwrap();
                         todo.content
                             .remove(args.index(2).parse::<usize>().unwrap() - 1);
                         routing_ctx

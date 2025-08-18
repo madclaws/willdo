@@ -1,4 +1,4 @@
 # willdo
 
-> A shared Keep over veilid network
+> A decentralized shared todo-list over veilid network
 
