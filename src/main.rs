@@ -6,8 +6,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use veilid_core::{
     AllowOffline, Crypto, CryptoKind, DHTRecordDescriptor, DHTSchemaDFLT, Encodable, HashDigest,
-    KeyPair, RecordKey, SetDHTValueOptions, TypedRecordKey, VeilidConfig,
-    VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
+    KeyPair, RecordKey, SetDHTValueOptions, TypedRecordKey, VeilidAPI, VeilidAPIResult,
+    VeilidConfig, VeilidConfigProtectedStore, VeilidConfigTableStore, VeilidUpdate,
 };
 const MAX_ENTRIES: u16 = 50;
 
@@ -17,50 +17,16 @@ struct Todo {
     content: Vec<String>,
 }
 
+mod login;
 #[tokio::main]
 async fn main() {
     println!("Willdo: A decentralized shared todo-list over veilid network!");
 
-    let update_callback = Arc::new(move |_veilid_updates: VeilidUpdate| {});
-
-    let exe_dir = std::env::current_exe()
-        .map(|x| x.parent().map(|p| p.to_owned()))
-        .ok()
-        .flatten()
-        .unwrap_or(".".into());
-    let config = VeilidConfig {
-        program_name: "willdo".into(),
-        namespace: "willdo_space".into(),
-
-        // TODO: maybe change in prod
-        protected_store: VeilidConfigProtectedStore {
-            // IMPORTANT: don't do this in production
-            // This avoids prompting for a password and is insecure
-            always_use_insecure_storage: true,
-            directory: exe_dir
-                .join(".veilid/protected_store")
-                .to_string_lossy()
-                .to_string(),
-            ..Default::default()
-        },
-        table_store: VeilidConfigTableStore {
-            directory: exe_dir
-                .join(".veilid/table_store")
-                .to_string_lossy()
-                .to_string(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let veilid = veilid_core::api_startup_config(update_callback, config)
-        .await
-        .unwrap();
+    let veilid = setup_veilid().await.unwrap();
     println!(
         "NODE ID {}",
         (veilid.config().unwrap().get().network.routing_table.node_id)
     );
-
     veilid.attach().await.unwrap();
 
     let routing_ctx = veilid.routing_context().unwrap();
@@ -278,4 +244,40 @@ fn get_args_multi(input: &str) -> Vec<String> {
 fn get_record_key(key_str: &str) -> TypedRecordKey {
     let h = HashDigest::try_decode_bytes(key_str.as_bytes()).unwrap();
     TypedRecordKey::new(CryptoKind::from_str("VLD0").unwrap(), RecordKey::from(h))
+}
+
+async fn setup_veilid() -> VeilidAPIResult<VeilidAPI> {
+    let update_callback = Arc::new(move |_veilid_updates: VeilidUpdate| {});
+
+    let exe_dir = std::env::current_exe()
+        .map(|x| x.parent().map(|p| p.to_owned()))
+        .ok()
+        .flatten()
+        .unwrap_or(".".into());
+    let config = VeilidConfig {
+        program_name: "willdo".into(),
+        namespace: "willdo_space".into(),
+
+        // TODO: maybe change in prod
+        protected_store: VeilidConfigProtectedStore {
+            // IMPORTANT: don't do this in production
+            // This avoids prompting for a password and is insecure
+            always_use_insecure_storage: true,
+            directory: exe_dir
+                .join(".veilid/protected_store")
+                .to_string_lossy()
+                .to_string(),
+            ..Default::default()
+        },
+        table_store: VeilidConfigTableStore {
+            directory: exe_dir
+                .join(".veilid/table_store")
+                .to_string_lossy()
+                .to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    veilid_core::api_startup_config(update_callback, config).await
 }
