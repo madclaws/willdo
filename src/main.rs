@@ -11,6 +11,7 @@ use veilid_core::{
 };
 const MAX_ENTRIES: u16 = 50;
 
+// maintains the Todo context
 #[derive(Serialize, Deserialize)]
 struct Todo {
     title: String,
